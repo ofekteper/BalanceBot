@@ -1,0 +1,83 @@
+<mujoco model="ball_plate_3rrs">
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.001" gravity="0 0 -9.81" integrator="implicitfast"/>
+  <statistic center="0 0 0.08" extent="0.3"/>
+
+  <worldbody>
+    <light pos="0 0 1.0" dir="0 0 -1"/>
+    <geom name="floor" type="plane" size="0.5 0.5 0.1" rgba="0.85 0.85 0.85 1"/>
+    <geom name="base" type="cylinder" size="0.085 0.005" pos="0 0 0.005" rgba="0.3 0.3 0.3 1"
+          contype="0" conaffinity="0" mass="0"/>
+    <geom name="servo0_body" type="box" size="0.0115 0.006 0.012" pos="0.045000 0.000000 0.02" euler="0 0 0.000000" rgba="0.15 0.15 0.15 1" contype="0" conaffinity="0" mass="0"/>
+    <geom name="servo1_body" type="box" size="0.0115 0.006 0.012" pos="-0.022500 0.038971 0.02" euler="0 0 2.094395" rgba="0.15 0.15 0.15 1" contype="0" conaffinity="0" mass="0"/>
+    <geom name="servo2_body" type="box" size="0.0115 0.006 0.012" pos="-0.022500 -0.038971 0.02" euler="0 0 4.188790" rgba="0.15 0.15 0.15 1" contype="0" conaffinity="0" mass="0"/>
+
+    <body name="arm0" pos="0.045000 0.000000 0.02" euler="0 0 0.000000">
+      <joint name="servo0" type="hinge" axis="0 -1 0" range="-0.69813 0.69813"
+             damping="0.0005" armature="0.0002"/>
+      <geom name="arm0_geom" type="capsule" fromto="0 0 0 0.02 0 0" size="0.002"
+            mass="0.002" rgba="0.95 0.6 0.1 1" contype="0" conaffinity="0"/>
+      <body name="rod0" pos="0.02 0 0">
+        <joint name="rod0_ball" type="ball" damping="1e-5" armature="1e-6"/>
+        <geom name="rod0_geom" type="capsule" fromto="0 0 0 0.000000 0 0.075000"
+              size="0.0015" mass="0.003" rgba="0.6 0.6 0.65 1"
+              contype="0" conaffinity="0"/>
+      </body>
+    </body>
+    <body name="arm1" pos="-0.022500 0.038971 0.02" euler="0 0 2.094395">
+      <joint name="servo1" type="hinge" axis="0 -1 0" range="-0.69813 0.69813"
+             damping="0.0005" armature="0.0002"/>
+      <geom name="arm1_geom" type="capsule" fromto="0 0 0 0.02 0 0" size="0.002"
+            mass="0.002" rgba="0.95 0.6 0.1 1" contype="0" conaffinity="0"/>
+      <body name="rod1" pos="0.02 0 0">
+        <joint name="rod1_ball" type="ball" damping="1e-5" armature="1e-6"/>
+        <geom name="rod1_geom" type="capsule" fromto="0 0 0 0.000000 0 0.075000"
+              size="0.0015" mass="0.003" rgba="0.6 0.6 0.65 1"
+              contype="0" conaffinity="0"/>
+      </body>
+    </body>
+    <body name="arm2" pos="-0.022500 -0.038971 0.02" euler="0 0 4.188790">
+      <joint name="servo2" type="hinge" axis="0 -1 0" range="-0.69813 0.69813"
+             damping="0.0005" armature="0.0002"/>
+      <geom name="arm2_geom" type="capsule" fromto="0 0 0 0.02 0 0" size="0.002"
+            mass="0.002" rgba="0.95 0.6 0.1 1" contype="0" conaffinity="0"/>
+      <body name="rod2" pos="0.02 0 0">
+        <joint name="rod2_ball" type="ball" damping="1e-5" armature="1e-6"/>
+        <geom name="rod2_geom" type="capsule" fromto="0 0 0 0.000000 0 0.075000"
+              size="0.0015" mass="0.003" rgba="0.6 0.6 0.65 1"
+              contype="0" conaffinity="0"/>
+      </body>
+    </body>
+
+    <!-- Plate on a passive central support: height + two tilts -->
+    <body name="plate" pos="0 0 0.095000">
+      <joint name="plate_z"  type="slide" axis="0 0 1" range="-0.03 0.03" damping="0.2"/>
+      <joint name="plate_rx" type="hinge" axis="1 0 0" range="-0.34907 0.34907" damping="0.005"/>
+      <joint name="plate_ry" type="hinge" axis="0 1 0" range="-0.34907 0.34907" damping="0.005"/>
+      <geom name="plate_geom" type="cylinder" size="0.1 0.00075"
+            mass="0.06" friction="0.8 0.005 0.0002" rgba="0.6 0.8 0.95 0.5"/>
+      <geom name="pcb_geom" type="cylinder" size="0.09000000000000001 0.0008"
+            pos="0 0 -0.0015500000000000002" mass="0.025"
+            rgba="0.1 0.5 0.2 1" contype="0" conaffinity="0"/>
+    </body>
+
+    <body name="ball" pos="0.03 0.0 0.117750">
+      <freejoint name="ball_free"/>
+      <inertial pos="0 0 0" mass="0.0027" diaginertia="7.2000e-07 7.2000e-07 7.2000e-07"/>
+      <geom name="ball_geom" type="sphere" size="0.02" condim="6" friction="0.8 0.005 0.0002"
+            rgba="1 0.5 0.1 1"/>
+    </body>
+  </worldbody>
+
+  <equality>
+    <connect name="rod0_to_plate" body1="rod0" body2="plate" anchor="0.000000 0 0.075000" solref="0.004 1"/>
+    <connect name="rod1_to_plate" body1="rod1" body2="plate" anchor="0.000000 0 0.075000" solref="0.004 1"/>
+    <connect name="rod2_to_plate" body1="rod2" body2="plate" anchor="0.000000 0 0.075000" solref="0.004 1"/>
+  </equality>
+
+  <actuator>
+    <position name="servo0" joint="servo0" kp="1.0" kv="0.02" ctrlrange="-0.69813 0.69813" forcerange="-0.17 0.17"/>
+    <position name="servo1" joint="servo1" kp="1.0" kv="0.02" ctrlrange="-0.69813 0.69813" forcerange="-0.17 0.17"/>
+    <position name="servo2" joint="servo2" kp="1.0" kv="0.02" ctrlrange="-0.69813 0.69813" forcerange="-0.17 0.17"/>
+  </actuator>
+</mujoco>

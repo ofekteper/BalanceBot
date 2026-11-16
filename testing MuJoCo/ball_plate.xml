@@ -1,0 +1,29 @@
+<mujoco model="ball_and_plate">
+  <option timestep="0.002" gravity="0 0 -9.81"/>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1"/>
+    <geom name="floor" type="plane" size="1 1 0.1" rgba="0.85 0.85 0.85 1"/>
+
+    <!-- Plate: pivots about its center on two hinges (tilt around X and Y) -->
+    <body name="plate" pos="0 0 0.3">
+      <joint name="tilt_x" type="hinge" axis="1 0 0" range="-20 20" damping="0.1"/>
+      <joint name="tilt_y" type="hinge" axis="0 1 0" range="-20 20" damping="0.1"/>
+      <geom name="plate_geom" type="box" size="0.15 0.15 0.005" mass="0.3"
+            friction="1 0.005 0.0001" rgba="0.2 0.4 0.8 1"/>
+    </body>
+
+    <!-- Ball: free body (6 DOF), starts just above the plate -->
+    <body name="ball" pos="0.0 0.0 0.301">
+      <freejoint name="ball_free"/>
+      <geom name="ball_geom" type="sphere" size="0.02" mass="0.005"
+            friction="1 0.005 0.0001" rgba="0.9 0.2 0.2 1"/>
+    </body>
+  </worldbody>
+
+  <!-- Two "servos" that command plate angle (radians) -->
+  <actuator>
+    <position name="act_x" joint="tilt_x" kp="2" ctrlrange="-0.35 0.35" ctrllimited="true"/>
+    <position name="act_y" joint="tilt_y" kp="2" ctrlrange="-0.35 0.35" ctrllimited="true"/>
+  </actuator>
+</mujoco>
