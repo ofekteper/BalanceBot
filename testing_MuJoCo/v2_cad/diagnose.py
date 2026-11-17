@@ -77,6 +77,97 @@ def tilt_accuracy():
               f"servos {np.round(np.degrees(sc.target), 2)}")
 
 
+def sensor_test():
+    """Put each ball at many places on the plate and compare the IR estimate with the truth."""
+    from ir_sensors import IRSensorArray, PT_XY
+    import ballplate_model as bm
+    print("\nIR sensor array: position estimate error (ball placed on a 5 mm grid)")
+    for ball in ("pingpong", "plastic_20mm", "steel_20mm"):
+        model = mujoco.MjModel.from_xml_string(build_xml(ball=ball, meshes=False))
+        data = mujoco.MjData(model)
+        ir = IRSensorArray(ball)
+        adr = model.jnt_qposadr[model.joint("ball_free").id]
+        r = bm.BALLS[ball][0]
+        res = {"in": [], "out": [], "miss_in": 0, "miss_out": 0}
+        for x in np.arange(-0.050, 0.0501, 0.005):
+            for y in np.arange(-0.050, 0.0501, 0.005):
+                if math.hypot(x, y) > 0.050:
+                    continue
+                data.qpos[adr:adr + 7] = [x, y, bm.PLATE_TOP_Z + r, 1, 0, 0, 0]
+                mujoco.mj_forward(model, data)
+                est = ir.estimate(ir.read(model, data))
+                key = "in" if max(abs(x), abs(y)) <= 0.032 else "out"
+                if est is None:
+                    res["miss_" + key] += 1
+                else:
+                    res[key].append(math.hypot(est[0] - x, est[1] - y) * 1000)
+        data.qpos[adr:adr + 7] = [*PT_XY[5], bm.PLATE_TOP_Z + r, 1, 0, 0, 0]
+        mujoco.mj_forward(model, data)
+        peak = int((ir.read(model, data) - ir.baseline).max())
+        fmt = lambda a: f"mean {np.mean(a):4.1f} max {np.max(a):4.1f} mm" if a else "  -  "
+        print(f"  {ball:13s} peak signal +{peak:3d} counts | inside sensor grid: {fmt(res['in'])}, "
+              f"missed {res['miss_in']} | outside grid: {fmt(res['out'])}, missed {res['miss_out']}")
+    ir = IRSensorArray(None)
+    false = sum(ir.estimate(ir.read(None, None)) is not None for _ in range(400))
+    print(f"  no ball: false detections {false}/400 samples")
+
+
+def balance_test():
+    """Closed loop with the ported firmware: drop the ball, move the setpoint, kick the ball."""
+    from babot_firmware import FirmwareLoop
+    from ir_sensors import IRSensorArray
+    import ballplate_model as bm
+    print("\nFirmware balancing (ping-pong ball, PID P=3 I=0.04 D=25 at 30 Hz):")
+
+    def run(start, events, T):
+        model = mujoco.MjModel.from_xml_string(build_xml(ball="pingpong", ball_xy=start, meshes=False))
+        data = mujoco.MjData(model)
+        ir = IRSensorArray("pingpong")
+        sc = ServoCommander()
+        loop = FirmwareLoop(ir, sc)
+        dof = model.jnt_dofadr[model.joint("ball_free").id]
+        log, events = [], sorted(events)
+        while data.time < T:
+            while events and data.time >= events[0][0]:
+                _, kind, val = events.pop(0)
+                if kind == "setpoint":
+                    loop.fw.set_setpoint_mm(*val)
+                else:
+                    data.qvel[dof:dof + 2] += val
+            sc.update(data, model.opt.timestep)
+            mujoco.mj_step(model, data)
+            if loop.step(model, data):
+                p = ir.ball_in_plate_frame(data)
+                if p[2] < 0 or math.hypot(p[0], p[1]) > bm.PLATE_RADIUS:
+                    return None, data.time
+                log.append((data.time, p[0] * 1000, p[1] * 1000))
+        return np.array(log), T
+
+    def window(log, t0, t1, target=(0, 0)):
+        sel = log[(log[:, 0] >= t0) & (log[:, 0] < t1)]
+        d = np.hypot(sel[:, 1] - target[0], sel[:, 2] - target[1])
+        return d.mean(), d.max()
+
+    for start in [(0.02, 0.0), (-0.03, -0.015), (0.035, 0.03)]:
+        log, t = run(start, [], 8.0)
+        if log is None:
+            print(f"  drop at ({start[0] * 1000:.0f}, {start[1] * 1000:.0f}) mm: FELL OFF at t={t:.2f}")
+            continue
+        m, mx = window(log, 5, 8)
+        print(f"  drop at ({start[0] * 1000:3.0f}, {start[1] * 1000:3.0f}) mm: after 5 s within "
+              f"{mx:4.1f} mm of centre (mean {m:.1f})")
+    log, t = run((0.0, 0.0), [(3.0, "setpoint", (15, 10)), (9.0, "kick", (0.15, -0.1))], 14.0)
+    if log is None:
+        print(f"  setpoint/kick test: FELL OFF at t={t:.2f}")
+    else:
+        m, mx = window(log, 6, 9, (15, 10))
+        print(f"  setpoint moved to (15, 10) mm: 3 s later within {mx:4.1f} mm (mean {m:.1f})")
+        sel = log[log[:, 0] >= 9.0]
+        far = np.hypot(sel[:, 1] - 15, sel[:, 2] - 10).max()
+        m, mx = window(log, 12, 14, (15, 10))
+        print(f"  kick of 0.18 m/s: ball went {far:4.1f} mm away, back within {mx:4.1f} mm after 3 s")
+
+
 if __name__ == "__main__":
     run("flat, no ball", "flat", None)
     run("0.5 deg steps, ping-pong ball", "small_steps", "pingpong")
@@ -85,3 +176,5 @@ if __name__ == "__main__":
     run("circle 5 deg, steel ball", "circle", "steel_20mm")
     run("random servo jumps +-45 deg", "servo_jumps", None)
     tilt_accuracy()
+    sensor_test()
+    balance_test()

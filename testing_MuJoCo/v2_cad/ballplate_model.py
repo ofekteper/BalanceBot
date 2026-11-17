@@ -26,16 +26,30 @@ SERVO_Z       = 0.023626          # CAD: servo shaft height
 ELBOW_RADIUS  = 0.062299          # CAD: elbow pin hole centre (4.5 mm hole)
 ELBOW_Z       = 0.048626          # CAD
 MAG_BALL_RADIUS = 0.006           # CAD: 11.8 mm gap between arm_top tip (z=83.6) and holder (z=95.4)
-BALL_Z        = 0.0895            # CAD: centre of the magnetic balls at neutral (mid gap)
+CAD_BALL_Z    = 0.0895            # CAD: centre of the magnetic balls at neutral in the STL assembly
+
+# Upper arm = elbow pin -> magnetic ball centre.
+#   0.0392 : project spec (report).  In the printed arm_top the ball then sinks ~1.7 mm into the tip.
+#   CAD_BALL_Z - ELBOW_Z (= 0.0409) : what the STL files give.
+ROD_LENGTH    = 0.0392
+BALL_Z        = ELBOW_Z + ROD_LENGTH   # world height of the magnetic ball centres at neutral
+
+# Plate side, CAD heights in the STL assembly. In the model they are placed relative to the ball
+# centre (z - CAD_BALL_Z), so the holders always sit on the magnetic balls whatever ROD_LENGTH is.
 HOLDER_BOTTOM_Z = 0.0954          # CAD: bottom of the holder cylinder (touches the magnetic ball)
-HOLDER_TOP_Z  = 0.1043            # CAD: top of the holder, the PCB sits on it
+HOLDER_TOP_Z  = 0.1043            # CAD: top of the holder, the PMMA plate sits on it
 HOLDER_RADIUS = 0.006             # CAD: holder is a 12 mm cylinder centred over the rod
+PCB_SLOT_Z    = (0.093316 + 0.095176) / 2   # CAD: the C-clip slot in each holder's inner tab (1.86 mm)
+PCB_SLOT_RMAX = 0.05155           # CAD: bottom of the slot, distance from the centre axis
 
 CRANK_LENGTH  = math.hypot(ELBOW_RADIUS - SERVO_RADIUS, ELBOW_Z - SERVO_Z)       # 50.0 mm
 CRANK_ANGLE0  = math.atan2(ELBOW_Z - SERVO_Z, ELBOW_RADIUS - SERVO_RADIUS)       # 30.0 deg
-ROD_LENGTH    = BALL_Z - ELBOW_Z                                                  # 40.9 mm
 ATTACH_RADIUS = ELBOW_RADIUS                                                      # rod vertical at neutral
-ARM_LIMIT     = math.radians(45)  # servo travel each side of neutral (mechanical limit in the sim)
+# Servo travel. The firmware (main.ino moveServos) clamps the crank angle above horizontal to
+# -10..85 deg. In the sim, servo angles are measured from the CAD pose (crank at CRANK_ANGLE0).
+CRANK_MIN_DEG, CRANK_MAX_DEG = -10.0, 85.0
+SERVO_MIN     = math.radians(CRANK_MIN_DEG) - CRANK_ANGLE0      # -40 deg
+SERVO_MAX     = math.radians(CRANK_MAX_DEG) - CRANK_ANGLE0      # +55 deg
 
 # ---------------- Masses (3D-printed parts) ----------------
 PRINT_DENSITY = 1240 * 0.6        # GUESS: PLA at ~60 % infill, kg/m^3
@@ -62,10 +76,9 @@ MAGNET_PULL_N = 2.0               # GUESS: force that pulls the ball off its mag
 PLATE_RADIUS  = 0.070             # GUESS (holders reach 68.3 mm from the centre)
 PLATE_THICK   = 0.0015            # 1.5 mm PMMA
 PMMA_DENSITY  = 1190
-PCB_RADIUS    = 0.060             # GUESS
+PCB_RADIUS    = 0.04995           # Gerber: 100 mm round board, 3 tabs to r=51.6 mm go into the slots
 PCB_THICK     = 0.0016
 PCB_MASS      = 0.040             # GUESS: FR4 + IR components
-SENSOR_GAP    = 0.003             # GUESS: PCB top -> PMMA underside (IR components)
 
 # ---------------- Contact ----------------
 # sliding, torsional, rolling. Rolling/torsional only act with condim=6 (set on the ball).
@@ -88,9 +101,10 @@ MESH_FILES = {"base": "Base.stl", "arm_bottom": "3X_arm_bottom.stl",
 
 # ---------------- Derived plate geometry (relative to the plate frame at BALL_Z) ----------------
 PLATE_MASS    = math.pi * PLATE_RADIUS ** 2 * PLATE_THICK * PMMA_DENSITY
-PCB_Z_REL     = HOLDER_TOP_Z + PCB_THICK / 2 - BALL_Z
-PLATE_Z_REL   = HOLDER_TOP_Z + PCB_THICK + SENSOR_GAP + PLATE_THICK / 2 - BALL_Z
+PCB_Z_REL     = PCB_SLOT_Z - CAD_BALL_Z                            # PCB held in the holder clips
+PLATE_Z_REL   = HOLDER_TOP_Z + PLATE_THICK / 2 - CAD_BALL_Z        # PMMA on top of the holders
 PLATE_TOP_Z   = BALL_Z + PLATE_Z_REL + PLATE_THICK / 2    # world height of the rolling surface
+PCB_TO_PLATE_GAP = (HOLDER_TOP_Z - PCB_SLOT_Z) - PCB_THICK / 2    # PCB top -> PMMA underside (~8.5 mm)
 
 
 def servo_angle(i):
@@ -161,9 +175,9 @@ def ik(z=0.0, rx=0.0, ry=0.0):
         alpha, beta = math.atan2(v, u), math.acos(K / M)
         theta = min((alpha - beta, alpha + beta), key=lambda t: abs(t - CRANK_ANGLE0))
         q = theta - CRANK_ANGLE0
-        if abs(q) > ARM_LIMIT:
+        if not SERVO_MIN <= q <= SERVO_MAX:
             raise ValueError(f"servo {i} would need {math.degrees(q):.1f} deg "
-                             f"(limit {math.degrees(ARM_LIMIT):.0f})")
+                             f"(range {math.degrees(SERVO_MIN):.0f}..{math.degrees(SERVO_MAX):.0f})")
         out.append(q)
     return out
 
@@ -177,7 +191,7 @@ def ik_deg(rx_deg=0.0, ry_deg=0.0, z_mm=0.0):
 class ServoCommander:
     """Turns the servo angles you ask for into what a real hobby servo would do.
 
-    * clamps to +-ARM_LIMIT
+    * clamps to SERVO_MIN..SERVO_MAX (the firmware limits)
     * limits the speed to SERVO_SPEED (a real servo cannot jump)
     * optional resolution (deadband) in degrees, e.g. 0.3 for a cheap SG90
 
@@ -193,7 +207,7 @@ class ServoCommander:
         self.last_error = None
 
     def set_servos_deg(self, angles_deg):
-        self.target = np.clip(np.radians(np.asarray(angles_deg, float)), -ARM_LIMIT, ARM_LIMIT)
+        self.target = np.clip(np.radians(np.asarray(angles_deg, float)), SERVO_MIN, SERVO_MAX)
         self.last_error = None
 
     def set_tilt_deg(self, rx_deg=0.0, ry_deg=0.0, z_mm=0.0):
@@ -298,16 +312,16 @@ def build_xml(ball="pingpong", ball_xy=(0.02, 0.0), timestep=TIMESTEP, meshes=Tr
                         f'rgba="0.75 0.75 0.8 1" pos="{-ELBOW_RADIUS:.6f} 0 {-ELBOW_Z:.6f}"/>')
             plate_extras.append(
                 f'      <geom name="holder{i}" type="mesh" mesh="holder" class="visual" '
-                f'euler="0 0 {phi - math.pi / 2:.6f}" pos="0 0 {-BALL_Z:.6f}" rgba="0.3 0.3 0.8 1"/>')
+                f'euler="0 0 {phi - math.pi / 2:.6f}" pos="0 0 {-CAD_BALL_Z:.6f}" rgba="0.3 0.3 0.8 1"/>')
         else:
-            hz = (HOLDER_BOTTOM_Z + HOLDER_TOP_Z) / 2 - BALL_Z
+            hz = (HOLDER_BOTTOM_Z + HOLDER_TOP_Z) / 2 - CAD_BALL_Z
             plate_extras.append(
                 f'      <geom name="holder{i}" type="cylinder" size="{HOLDER_RADIUS} '
                 f'{(HOLDER_TOP_Z - HOLDER_BOTTOM_Z) / 2:.6f}" pos="{ax:.6f} {ay:.6f} {hz:.6f}" '
                 f'class="visual" rgba="0.3 0.3 0.8 1"/>')
         legs.append(f"""
     <body name="crank{i}" pos="{sx:.6f} {sy:.6f} {SERVO_Z}" euler="0 0 {phi:.6f}">
-      <joint name="servo{i}" type="hinge" axis="0 -1 0" range="{-ARM_LIMIT:.5f} {ARM_LIMIT:.5f}"
+      <joint name="servo{i}" type="hinge" axis="0 -1 0" range="{SERVO_MIN:.5f} {SERVO_MAX:.5f}"
              damping="0.0005" armature="{SERVO_INERTIA}"/>
       <geom name="crank{i}_geom" type="capsule" fromto="0 0 0 {cx:.6f} 0 {cz:.6f}"
             size="{CRANK_RADIUS}" mass="{CRANK_MASS:.6f}" rgba="0.95 0.6 0.1 1"
@@ -325,8 +339,33 @@ def build_xml(ball="pingpong", ball_xy=(0.02, 0.0), timestep=TIMESTEP, meshes=Tr
         eqs.append(f'    <connect name="ball{i}_joint" body1="rod{i}" body2="plate" '
                    f'anchor="0 0 {ROD_LENGTH:.6f}" solref="0.002 1" solimp="0.95 0.99 0.0005"/>')
         acts.append(f'    <position name="servo{i}" joint="servo{i}" kp="{SERVO_KP}" kv="{SERVO_KV}" '
-                    f'ctrlrange="{-ARM_LIMIT:.5f} {ARM_LIMIT:.5f}" '
+                    f'ctrlrange="{SERVO_MIN:.5f} {SERVO_MAX:.5f}" '
                     f'forcerange="{-SERVO_TORQUE} {SERVO_TORQUE}"/>')
+
+    # ---- IR sensing PCB parts (layout from the Gerbers, see ir_sensors.py) ----
+    import ir_sensors as irs
+    pcb_top = PCB_Z_REL + PCB_THICK / 2
+    part_z = pcb_top + irs.PART_HEIGHT / 2
+    for a in irs.PCB_TAB_ANGLES:   # the tabs that slide into the holder clips
+        ar = math.radians(a)
+        rm = (PCB_RADIUS - 0.001 + PCB_SLOT_RMAX) / 2
+        plate_extras.append(
+            f'      <geom name="pcb_tab{a}" type="box" size="{(PCB_SLOT_RMAX - PCB_RADIUS + 0.001) / 2:.5f} '
+            f'0.0015 {PCB_THICK / 2}" pos="{rm * math.cos(ar):.6f} {rm * math.sin(ar):.6f} {PCB_Z_REL:.6f}" '
+            f'euler="0 0 {ar:.6f}" class="visual" rgba="0.1 0.5 0.2 1"/>')
+    for j, (x, y) in enumerate(irs.LED_XY):
+        plate_extras.append(
+            f'      <geom name="led{j}" type="cylinder" size="{irs.PART_RADIUS} {irs.PART_HEIGHT / 2}" '
+            f'pos="{x:.6f} {y:.6f} {part_z:.6f}" class="visual" rgba="0.45 0.3 0.6 0.9"/>')
+    for k, (x, y) in enumerate(irs.PT_XY):
+        plate_extras.append(
+            f'      <geom name="pt{k}" type="cylinder" size="{irs.PART_RADIUS} {irs.PART_HEIGHT / 2}" '
+            f'pos="{x:.6f} {y:.6f} {part_z:.6f}" class="visual" rgba="0.1 0.1 0.1 1"/>')
+    estimate_xml = ""
+    if ball is not None:   # green disc that run_sim moves to where the IR array thinks the ball is
+        estimate_xml = """    <body name="ball_estimate" mocap="true" pos="0 0 -1">
+      <geom type="cylinder" size="0.007 0.0006" class="visual" rgba="0.1 1 0.2 0.8"/>
+    </body>"""
 
     base_geom = (f'<geom name="base" type="mesh" mesh="base" class="visual" rgba="0.3 0.3 0.3 1"/>'
                  if meshes else
@@ -362,12 +401,13 @@ def build_xml(ball="pingpong", ball_xy=(0.02, 0.0), timestep=TIMESTEP, meshes=Tr
       <geom name="pcb_geom" type="cylinder" size="{PCB_RADIUS} {PCB_THICK / 2}"
             pos="0 0 {PCB_Z_REL:.6f}" mass="{PCB_MASS}" rgba="0.1 0.5 0.2 1"
             contype="0" conaffinity="0"/>
-      <geom name="holders_mass" type="sphere" size="0.001" pos="0 0 {HOLDER_TOP_Z - 0.004 - BALL_Z:.6f}"
+      <geom name="holders_mass" type="sphere" size="0.001" pos="0 0 {HOLDER_TOP_Z - 0.004 - CAD_BALL_Z:.6f}"
             mass="{3 * HOLDER_MASS:.6f}" contype="0" conaffinity="0" group="3"/>
 {chr(10).join(plate_extras)}
     </body>
 
 {ball_xml}
+{estimate_xml}
   </worldbody>
 
   <equality>
