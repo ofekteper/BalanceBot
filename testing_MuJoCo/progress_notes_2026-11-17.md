@@ -100,4 +100,4 @@ Sources: the Gerber zip (pick-and-place and netlist from `FlyingProbeTesting.jso
 
 ## Housekeeping
 - **Duplicate folder:** there's an older copy at `testing MuJoCo/v2_cad` (with a space). All current work is in `testing_MuJoCo/v2_cad`, so the old copy can be deleted once checked.
-- **Nothing committed yet:** none of today's work is in git.
+- **Committed:** all of today's work is in git (latest commits `bb6f5f7`, `eb70c22`, `1e236bf`).
