@@ -1,0 +1,6 @@
+mujoco>=3.1
+numpy
+gymnasium>=0.29
+stable-baselines3>=2.3
+torch
+matplotlib
